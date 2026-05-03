@@ -15,7 +15,16 @@ Attacks, Evaluations, And Improvements are welcome and requested
 
 # Installation
 
-I'll add this later when I actually publish this
+jbascinstall.bet installs `%JBASC_HOME%` to your %PATH%
+You then can use it like
+```
+jbasc encrypt "C:\path\to\file" "long-key" "good-salt"
+```
+for encryption
+```
+jbasc decrypt "C:\path\to\file.jbas" "same-long-key" "same-good-salt"
+```
+for decryption
 
 # JBASC Specifications
 
