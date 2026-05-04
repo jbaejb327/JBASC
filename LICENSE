@@ -1,4 +1,49 @@
-                    GNU GENERAL PUBLIC LICENSE
+JBASC Porting Exception
+
+Permission is granted to create and distribute derivations (ports) of JBASC to other
+programming languages, platforms, or environments, provided that the
+resulting work is licensed under the GNU General Public License v3.0 or
+later.
+
+To use the JBASC name without a disclaimer, a port must meet the
+following conditions:
+
+1. The port must achieve cryptographic behavior comparable to or better
+   than the original JBASC implementation. Specifically:
+   - Avalanche, CT-indistinguishability, and key sensitivity metrics
+     must be within approximately 5% of the original implementation
+     *if the port's values are lower*. Higher values outside the approximate 5% difference
+      are acceptable and do not require a disclaimer.
+   - Differential uniformity must be 4 or higher across all S-boxes used in the
+     port.
+
+2. The port must preserve the structural design of JBASC, including:
+   - AES-style (Advanced Encryption Standard) S-box construction using Galois Field inverse + affine transform.
+   - A diffusion layer providing maximum branch number.
+   - A round structure equivalent to SubBytes → ShiftWords → MixWords
+     → AddRoundKey.
+
+If a port does not meet these criteria but still uses the JBASC name,
+the distributor must include a clear and prominent disclaimer:
+
+"JBASC Port Notice: This is an independent port of the JBASC cipher.
+It does not meet the statistical or structural requirements of the
+official JBASC Porting Exception. This port may be cryptographically insecure or flawed and is not affiliated with JBASC or any of its developers or contributors."
+
+The disclaimer must not imply endorsement, approval, or verification by the
+original JBASC authors, nor may it suggest that the disclaimer itself is
+incorrect, misleading, or unnecessary.
+
+
+Failure to include this disclaimer may result in a takedown request for
+misuse of the JBASC name.
+
+This exception expands user permissions and does not modify or replace
+the terms of the GNU General Public License v3.0.
+
+------------------------------------------------------------------------------------------------
+
+                      GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
  Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
