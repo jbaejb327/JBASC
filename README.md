@@ -1,7 +1,7 @@
 # Java Based AES Style Cipher (JBASC) is an *experimental* block cipher. 
 Do not fully trust until it has been evaluated.
 
-Attacks, Evaluations, And Improvements are welcome and requested
+Attacks, Evaluations, And Improvements are welcome and requested, more info at end of README.md
 ## Capability Summary
 
 * Differential uniformity of 4 across all 80 SBOXs
@@ -26,6 +26,16 @@ jbasc decrypt "C:\path\to\file.jbas" "same-long-key" "same-good-salt"
 ```
 for decryption
 
+## Porting
+If you port this project, use it's name but don't meet the porting clause in LICENSE, you must add a clear disclaimer saying:
+```
+JBASC Port Notice: This is an independent port of the JBASC cipher.
+It does not meet the statistical or structural requirements of the
+official JBASC Porting Exception. This port may be cryptographically insecure or flawed and is not affiliated with JBASC or any of its developers or contributors.
+```
+or your repository may be taken down.
+
+For more info, check LICENSE.
 # JBASC Specifications
 
 * **Block Size:** 512 bits (64 bytes)
@@ -87,3 +97,16 @@ for decryption
 * Nonlinear S-boxes: GF inverse + affine transform
 * Constant-time MAC verification
 * CBC-style block chaining prevents repeating ciphertext blocks
+
+
+### This cipher is experimental. I am explicitly requesting:
+*differential/linear trail analysis
+*boomerang/rectangle attacks
+*related‑key attacks
+*meet‑in‑the‑middle
+*impossible differentials
+*algebraic attacks
+*distinguishers on reduced rounds
+*structural weaknesses in S‑box/key schedule coupling
+
+Please report any attacks, distinguishers, or non‑random behavior you find.
