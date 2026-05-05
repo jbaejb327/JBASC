@@ -31,7 +31,9 @@ If you port this project, use it's name but don't meet the porting clause in LIC
 ```
 JBASC Port Notice: This is an independent port of the JBASC cipher.
 It does not meet the statistical or structural requirements of the
-official JBASC Porting Exception. This port may be cryptographically insecure or flawed and is not affiliated with JBASC or any of its developers or contributors.
+official JBASC Porting Exception. This port may be cryptographically
+insecure or flawed and is not affiliated with JBASC or any of its
+developers or contributors.
 ```
 or your repository may be taken down.
 
