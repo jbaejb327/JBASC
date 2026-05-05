@@ -5,7 +5,7 @@ Attacks, Evaluations, And Improvements are welcome and requested, more info at e
 ## Capability Summary
 
 * Differential uniformity of 4 across all 80 SBOXs
-* CT indistinguishability of 98.44%
+* Near-random output distribution
 * Avalanche of ~50%
 * 512bit (64 byte) blocks
 * CBC mode with PKCS7 padding
