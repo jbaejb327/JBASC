@@ -352,3 +352,4 @@ static byte[] encryptBlock(byte[] in, KeySchedule ks, byte[] iv) {
 
     return stateToBytes(st);
 }
+}
