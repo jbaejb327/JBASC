@@ -1,17 +1,25 @@
 import java.nio.charset.StandardCharsets;
+import java.security.Key;
+import java.util.function.Function;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class JBASC {
 
     static final int WORDS      = 8;
     static final int ROUNDS     = 10;
     static final int BLOCK_SIZE = 64;
-    static final int IV_SIZE    = BLOCK_SIZE
+    static final int IV_SIZE    = BLOCK_SIZE;
     static final int MAC_SIZE   = 32;
+    static final int[] ROT = {3, 11, 17, 29, 37, 43, 53, 61};
 
     static int gfMul(int a, int b) {
         int r = 0;
@@ -52,26 +60,6 @@ public class JBASC {
         return result;
     }
 
-    static int[] gf2MatInverse(int[] M) {
-        int[] aug = new int[8];
-        for (int i = 0; i < 8; i++) aug[i] = M[i] | ((0x80 >> i) << 8);
-        int pivot = 0;
-        for (int col = 7; col >= 0; col--) {
-            int found = -1;
-            for (int row = pivot; row < 8; row++)
-                if (((aug[row] >> col) & 1) == 1) { found = row; break; }
-            if (found == -1) throw new ArithmeticException("Singular matrix");
-            int tmp = aug[pivot]; aug[pivot] = aug[found]; aug[found] = tmp;
-            for (int row = 0; row < 8; row++)
-                if (row != pivot && ((aug[row] >> col) & 1) == 1)
-                    aug[row] ^= aug[pivot];
-            pivot++;
-        }
-        int[] inv = new int[8];
-        for (int i = 0; i < 8; i++) inv[i] = (aug[i] >> 8) & 0xFF;
-        return inv;
-    }
-
     static byte[] sha256(byte[]... in) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -100,8 +88,8 @@ public class JBASC {
         }
         return out;
     }
+
     static long[] bytesToState(byte[] b) {
-        if (b.length < BLOCK_SIZE) throw new IllegalArgumentException("Need 64 bytes");
         long[] s = new long[WORDS];
         for (int i = 0; i < WORDS; i++) {
             long v = 0;
@@ -126,21 +114,19 @@ public class JBASC {
         return v;
     }
 
-
-    static final int[] MDS8_X = {1, 2, 3, 4, 5, 6, 7, 8};
-    static final int[] MDS8_Y = {9,10,11,12,13,14,15,16};
-
-    static final int[][] MDS8     = buildMds8();
+    static final int[][] MDS8 = {
+        {7, 67, 150, 174, 198, 136, 98, 8},
+        {76, 138, 43, 233, 32, 152, 8, 127},
+        {96, 213, 67, 172, 11, 174, 51, 185},
+        {181, 19, 224, 141, 168, 58, 29, 132},
+        {134, 86, 57, 197, 69, 79, 14, 93},
+        {165, 147, 160, 68, 26, 105, 64, 188},
+        {163, 125, 208, 6, 217, 104, 5, 73},
+        {59, 176, 117, 146, 234, 96, 60, 106},
+    };
+    
     static final int[][] MDS8_INV = gf28MatInverse(MDS8);
-
-    static int[][] buildMds8() {
-        int[][] M = new int[8][8];
-        for (int i = 0; i < 8; i++)
-            for (int j = 0; j < 8; j++)
-                M[i][j] = GF_INV[MDS8_X[i] ^ MDS8_Y[j]]; // 1/(x_i + y_j)
-        return M;
-    }
-
+    
     static int[] gf28MatVecMul(int[][] M, int[] v) {
         int[] out = new int[8];
         for (int i = 0; i < 8; i++) {
@@ -150,8 +136,17 @@ public class JBASC {
         }
         return out;
     }
-
-    static int[][] gf28MatInverse(int[][] M) {
+    static void gf28MatVecMulInPlace(int[][] M, int[] col, int[] out) {
+    for (int i = 0; i < 8; i++) {
+        int sum = 0;
+        int[] row = M[i]; 
+        for (int j = 0; j < 8; j++) {
+            sum ^= gfMul(row[j], col[j]); 
+        }
+        out[i] = sum;
+    }
+}
+        static int[][] gf28MatInverse(int[][] M) {
         int[][] aug = new int[8][16];
         for (int i = 0; i < 8; i++) {
             System.arraycopy(M[i], 0, aug[i], 0, 8);
@@ -177,233 +172,183 @@ public class JBASC {
             System.arraycopy(aug[i], 8, inv[i], 0, 8);
         return inv;
     }
+    static final int[][][] MDS_FWD_LUT = buildMdsLut(MDS8);
+static final int[][][] MDS_INV_LUT = buildMdsLut(MDS8_INV);
 
-    static void mixWords(long[] st, boolean inverse) {
-        int[][] M = inverse ? MDS8_INV : MDS8;
-        for (int lane = 0; lane < 8; lane++) {
-            int shift = 56 - lane * 8;
-            int[] col = new int[8];
-            for (int i = 0; i < 8; i++)
-                col[i] = (int)((st[i] >>> shift) & 0xFF);
-            int[] mixed = gf28MatVecMul(M, col);
-            for (int i = 0; i < 8; i++) {
-                long mask = ~(0xFFL << shift);
-                st[i] = (st[i] & mask) | ((long)(mixed[i] & 0xFF) << shift);
+static int[][][] buildMdsLut(int[][] m) {
+    int[][][] lut = new int[8][8][256];
+    for (int row = 0; row < 8; row++) {
+        for (int col = 0; col < 8; col++) {
+            int coeff = m[row][col];
+            for (int b = 0; b < 256; b++) {
+                lut[row][col][b] = GF_MUL[coeff][b];
             }
         }
     }
+
+    return lut;
+}
+    static void crossMix(long[] st) {
+    long[] tmp = st.clone();
+    for (int i = 0; i < WORDS; i++) {
+        long a = tmp[(i + 1) & 7];
+        long b = tmp[(i + 3) & 7];
+        st[i] ^= Long.rotateLeft(a, 17);
+        st[i] += Long.rotateLeft(b, 41);
+    }
+}
+
+static void mixWords(long[] st, boolean inverse) {
+
+    final int[][][] LUT =
+        inverse ? MDS_INV_LUT : MDS_FWD_LUT;
+    final int[] col   = new int[8];
+    final int[] mixed = new int[8];
+    for (int lane = 0; lane < 8; lane++) {
+        final int shift = 56 - (lane << 3);
+        for (int i = 0; i < 8; i++) {
+            col[i] = (int)((st[i] >>> shift) & 0xFF);
+        }
+
+        for (int row = 0; row < 8; row++) {
+            mixed[row] =
+                LUT[row][0][col[0]]
+                ^ LUT[row][1][col[1]]
+                ^ LUT[row][2][col[2]]
+                ^ LUT[row][3][col[3]]
+                ^ LUT[row][4][col[4]]
+                ^ LUT[row][5][col[5]]
+                ^ LUT[row][6][col[6]]
+                ^ LUT[row][7][col[7]];
+        }
+
+        final long clearMask = ~(0xFFL << shift);
+        for (int i = 0; i < 8; i++) {
+            st[i] =
+                (st[i] & clearMask)
+                | (((long)mixed[i] & 0xFFL) << shift);
+        }
+    }
+}
+
     static class KeySchedule {
-        long[][]   roundKeys;
-        int[][][]  sbox;
-        int[][][]  sboxInv;
-        byte[]     macKey;
+        long[][]   roundKeys = new long[ROUNDS][WORDS];
+        int[][][]  sbox      = new int[ROUNDS][WORDS][256];
+    }
 
-        KeySchedule() {
-            roundKeys = new long[ROUNDS][WORDS];
-            sbox      = new int[ROUNDS][WORDS][256];
-            sboxInv   = new int[ROUNDS][WORDS][256];
+static KeySchedule build(byte[] k, byte[] s) {
+    KeySchedule ks = new KeySchedule();
+    byte[] cipherKey =
+        sha256(k, s, "CIPHER".getBytes(StandardCharsets.UTF_8));
+    byte[] rk =
+        expand(cipherKey, s, "RK".getBytes(StandardCharsets.UTF_8),
+               ROUNDS * WORDS * 8);
+    for (int r = 0; r < ROUNDS; r++) {
+        for (int i = 0; i < WORDS; i++) {
+            ks.roundKeys[r][i] =
+                bytesToLong8(rk, (r * WORDS + i) * 8);
         }
     }
 
-    static KeySchedule build(byte[] k, byte[] s) {
-        KeySchedule ks = new KeySchedule();
+    byte[] sboxSeed =
+        expand(cipherKey, s, "SBOX".getBytes(StandardCharsets.UTF_8),
+               ROUNDS * WORDS * 64);
 
-        byte[] cipherKey = sha256(k, s, "CIPHER".getBytes());
-        byte[] macKey    = sha256(k, s, "MAC".getBytes());
-        ks.macKey = macKey;
-
-        byte[] rk = expand(cipherKey, s, "RK".getBytes(), ROUNDS * WORDS * 8);
-        for (int r = 0; r < ROUNDS; r++)
-            for (int i = 0; i < WORDS; i++)
-                ks.roundKeys[r][i] = bytesToLong8(rk, (r * WORDS + i) * 8);
-        byte[] sboxSeed = expand(cipherKey, s, "SBOX".getBytes(), ROUNDS * WORDS * 9);
-        int seedOff = 0;
-
-        for (int r = 0; r < ROUNDS; r++) {
-            for (int w = 0; w < WORDS; w++) {
-                int[] seedBytes = new int[8];
-                for (int i = 0; i < 8; i++) seedBytes[i] = sboxSeed[seedOff + i] & 0xFF;
-                seedOff += 8;
-                int c = sboxSeed[seedOff++] & 0xFF;
-                int[] L = new int[8];
-                for (int i = 0; i < 8; i++) L[i] = 1 << (7 - i); // diagonal
-                int bitSrc = (seedBytes[0] << 24) | (seedBytes[1] << 16)
-                           | (seedBytes[2] <<  8) |  seedBytes[3];
-                int bitPos = 0;
-                for (int i = 1; i < 8; i++)
-                    for (int j = 0; j < i; j++) {
-                        if (((bitSrc >>> (31 - bitPos)) & 1) == 1)
-                            L[i] |= (1 << (7 - j));
-                        bitPos++;
+    int seedOff = 0;
+    for (int r = 0; r < ROUNDS; r++) {
+        for (int w = 0; w < WORDS; w++) {
+            int[] A;
+            while (true) {
+                A = new int[8];
+                for (int row = 0; row < 8; row++) {
+                    int bits = 0;
+                    for (int col = 0; col < 8; col++) {
+                        int idx =
+                            (seedOff + row * 8 + col) % sboxSeed.length;
+                        int bit =
+                            (sboxSeed[idx] >>> (col & 7)) & 1;
+                        bits |= (bit << (7 - col));
                     }
-
-                int[] U = new int[8];
-                for (int i = 0; i < 8; i++) U[i] = 1 << (7 - i); // diagonal
-                bitSrc = (seedBytes[4] << 24) | (seedBytes[5] << 16)
-                       | (seedBytes[6] <<  8) |  seedBytes[7];
-                bitPos = 0;
-                for (int i = 0; i < 7; i++)
-                    for (int j = i + 1; j < 8; j++) {
-                        if (((bitSrc >>> (31 - bitPos)) & 1) == 1)
-                            U[i] |= (1 << (7 - j));
-                        bitPos++;
-                    }
-
-                int[] A = new int[8];
-                for (int i = 0; i < 8; i++)
-                    for (int j = 0; j < 8; j++)
-                        if (((Integer.bitCount(L[i] & U[j])) & 1) == 1)
-                            A[i] |= (1 << (7 - j));
-                int[] box    = new int[256];
-                int[] invBox = new int[256];
-                for (int x = 0; x < 256; x++) {
-                    int y = gf2MatVecMul(A, GF_INV[x]) ^ c;
-                    box[x]    = y;
-                    invBox[y] = x;
+                    A[row] = bits;
                 }
+                seedOff += 64;
+                if (isInvertibleGF2(A))
+                    break;
+            }
+            int c =
+                sboxSeed[(seedOff++) % sboxSeed.length] & 0xFF;
+            int[] box = new int[256];
+            for (int x = 0; x < 256; x++) {
+                int inv = GF_INV[x];
+                int y = gf2MatVecMul(A, inv) ^ c;
+                box[x] = y & 0xFF;
+            }
+            ks.sbox[r][w] = box;
+        }
+    }
+    return ks;
+}
 
-                ks.sbox[r][w]    = box;
-                ks.sboxInv[r][w] = invBox;
+static boolean isInvertibleGF2(int[] M) {
+    int[] mat = M.clone();
+    int rank = 0;
+    for (int col = 0; col < 8; col++) {
+        int pivot = -1;
+        for (int row = rank; row < 8; row++) {
+            if (((mat[row] >>> (7 - col)) & 1) == 1) {
+                pivot = row;
+                break;
             }
         }
 
-        return ks;
-    }
-
-    static void shiftWords(long[] st) {
-        for (int i = 0; i < WORDS; i++)
-            st[i] = Long.rotateLeft(st[i], i * 8);
-    }
-
-    static void unshiftWords(long[] st) {
-        for (int i = 0; i < WORDS; i++)
-            st[i] = Long.rotateRight(st[i], i * 8);
-    }
-
-    static byte[] encryptBlock(byte[] in, KeySchedule ks, byte[] iv) {
-        long[] st = bytesToState(in);
-        long[] v  = bytesToState(iv);
-        for (int i = 0; i < WORDS; i++) st[i] ^= v[i];
-        for (int i = 0; i < WORDS; i++) st[i] ^= ks.roundKeys[0][i];
-        for (int r = 0; r < ROUNDS; r++) {
-            for (int i = 0; i < WORDS; i++) {
-                long x = st[i], y = 0;
-                for (int b = 0; b < 8; b++) {
-                    int vb = (int)((x >>> (56 - b * 8)) & 0xFF);
-                    y = (y << 8) | ks.sbox[r][i][vb];
-                }
-                st[i] = y;
-            }            shiftWords(st);
-            if (r < ROUNDS - 1) mixWords(st, false);
-            for (int i = 0; i < WORDS; i++) st[i] ^= ks.roundKeys[r][i];
-        }
-
-        return stateToBytes(st);
-    }
-
-    static byte[] decryptBlock(byte[] in, KeySchedule ks, byte[] iv) {
-        long[] st = bytesToState(in);
-
-        for (int r = ROUNDS - 1; r >= 0; r--) {
-            for (int i = 0; i < WORDS; i++) st[i] ^= ks.roundKeys[r][i];
-            if (r < ROUNDS - 1) mixWords(st, true);
-            unshiftWords(st);
-
-            for (int i = 0; i < WORDS; i++) {
-                long y = st[i], x = 0;
-                for (int b = 0; b < 8; b++) {
-                    int vb = (int)((y >>> (56 - b * 8)) & 0xFF);
-                    x = (x << 8) | ks.sboxInv[r][i][vb];
-                }
-                st[i] = x;
+        if (pivot == -1)
+            continue;
+        int tmp = mat[rank];
+        mat[rank] = mat[pivot];
+        mat[pivot] = tmp;
+        for (int row = 0; row < 8; row++) {
+            if (row != rank &&
+                (((mat[row] >>> (7 - col)) & 1) == 1)) {
+                mat[row] ^= mat[rank];
             }
         }
 
-        for (int i = 0; i < WORDS; i++) st[i] ^= ks.roundKeys[0][i];
-        long[] v = bytesToState(iv);
-        for (int i = 0; i < WORDS; i++) st[i] ^= v[i];
-
-        return stateToBytes(st);
+        rank++;
     }
+    return rank == 8;
+}
 
-    static byte[] pad(byte[] p) {
-        int padLen = BLOCK_SIZE - (p.length % BLOCK_SIZE);
-        byte[] data = Arrays.copyOf(p, p.length + padLen);
-        Arrays.fill(data, p.length, data.length, (byte) padLen);
-        return data;
+static void shiftWords(long[] st) {
+    for (int i = 0; i < WORDS; i++) {
+        st[i] = Long.rotateLeft(st[i], ROT[i]);
     }
+}
 
-    static byte[] unpad(byte[] data) {
-        if (data.length == 0 || data.length % BLOCK_SIZE != 0)
-            throw new IllegalArgumentException("Bad ciphertext length");
-        int pad = data[data.length - 1] & 0xFF;
-        if (pad < 1 || pad > BLOCK_SIZE)
-            throw new IllegalArgumentException("Invalid padding value: " + pad);
-        for (int i = data.length - pad; i < data.length; i++)
-            if ((data[i] & 0xFF) != pad)
-                throw new IllegalArgumentException("Padding mismatch");
-        return Arrays.copyOf(data, data.length - pad);
+static byte[] encryptBlock(byte[] in, KeySchedule ks, byte[] iv) {
+    long[] st = bytesToState(in);
+    long[] v  = bytesToState(iv);
+    for (int i = 0; i < WORDS; i++) {
+        st[i] ^= v[i];
     }
-
-
-    static String encrypt(String msg, byte[] k, byte[] s) {
-        return encrypt(msg, build(k, s));
-    }
-
-    static String encrypt(String msg, KeySchedule ks) {
-        byte[] data = pad(msg.getBytes(StandardCharsets.UTF_8));
-
-        SecureRandom rng = new SecureRandom();
-        byte[] iv = new byte[IV_SIZE];
-        rng.nextBytes(iv);
-
-        byte[] ct   = new byte[data.length];
-        byte[] prev = Arrays.copyOf(iv, BLOCK_SIZE);
-
-        for (int i = 0; i < data.length; i += BLOCK_SIZE) {
-            byte[] blk = Arrays.copyOfRange(data, i, i + BLOCK_SIZE);
-            byte[] enc = encryptBlock(blk, ks, prev);
-            System.arraycopy(enc, 0, ct, i, BLOCK_SIZE);
-            prev = enc;
+    for (int r = 0; r < ROUNDS; r++) {
+        for (int i = 0; i < WORDS; i++) {
+            st[i] ^= ks.roundKeys[r][i];
         }
-        byte[] payload = new byte[IV_SIZE + ct.length];
-        System.arraycopy(iv, 0, payload, 0,      IV_SIZE);
-        System.arraycopy(ct, 0, payload, IV_SIZE, ct.length);
-        byte[] mac = hmacSha256(ks.macKey, payload);
-
-        byte[] full = new byte[payload.length + MAC_SIZE];
-        System.arraycopy(payload, 0, full, 0,              payload.length);
-        System.arraycopy(mac,     0, full, payload.length, MAC_SIZE);
-
-        return new String(full, StandardCharsets.ISO_8859_1);
-    }
-
-    static String decrypt(String c, byte[] k, byte[] s) {
-        return decrypt(c, build(k, s));
-    }
-
-    static String decrypt(String c, KeySchedule ks) {
-        byte[] raw = c.getBytes(StandardCharsets.ISO_8859_1);
-        if (raw.length < IV_SIZE + BLOCK_SIZE + MAC_SIZE)
-            throw new IllegalArgumentException("Ciphertext too short");
-        byte[] payload  = Arrays.copyOf(raw, raw.length - MAC_SIZE);
-        byte[] macGiven = Arrays.copyOfRange(raw, raw.length - MAC_SIZE, raw.length);
-        byte[] macCalc = hmacSha256(ks.macKey, payload);
-        if (!MessageDigest.isEqual(macCalc, macGiven))
-            throw new SecurityException("MAC verification failed — ciphertext tampered");
-
-        byte[] iv   = Arrays.copyOf(payload, IV_SIZE);
-        byte[] body = Arrays.copyOfRange(payload, IV_SIZE, payload.length);
-
-        byte[] out  = new byte[body.length];
-        byte[] prev = Arrays.copyOf(iv, BLOCK_SIZE);
-
-        for (int i = 0; i < body.length; i += BLOCK_SIZE) {
-            byte[] blk = Arrays.copyOfRange(body, i, i + BLOCK_SIZE);
-            byte[] dec = decryptBlock(blk, ks, prev);
-            System.arraycopy(dec, 0, out, i, BLOCK_SIZE);
-            prev = blk;
+        for (int i = 0; i < WORDS; i++) {
+            long x = st[i];
+            long y = 0;
+            for (int b = 0; b < 8; b++) {
+                int vb = (int)((x >>> (56 - b * 8)) & 0xFF);
+                y = (y << 8) | ks.sbox[r][i][vb];
+            }
+            st[i] = y;
         }
-
-        return new String(unpad(out), StandardCharsets.UTF_8);
+        crossMix(st);
+        shiftWords(st);
+        mixWords(st, false);
+        for (int i = 0; i < WORDS; i++) {
+        }
     }
+
+    return stateToBytes(st);
+}
