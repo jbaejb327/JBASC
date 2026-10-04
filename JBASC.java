@@ -410,9 +410,9 @@ public class JBASC {
     }
 
     public static void main(String[] args) {
-        String msg = args[1];
-        byte[] k = args[2].getBytes();
-        byte[] s = args[3].getBytes();
+        String msg = args[0];
+        byte[] k = args[1].getBytes();
+        byte[] s = args[2].getBytes();
         String encrypted = encrypt(msg, k, s);
         System.out.println("Encrypted: " + encrypted);
         String decrypted = decrypt(encrypted, k, s);
