@@ -5,7 +5,7 @@ Attacks, Evaluations, And Improvements are welcome and requested, more info at e
 
 # Installation
 
-jbascinstall.bet installs `%JBASC_HOME%` to your %PATH%
+jbascinstall.bat installs `%JBASC_HOME%` to your %PATH%
 You then can use it like
 ```
 jbasc encrypt "C:\path\to\file" "long-key" "good-salt"
