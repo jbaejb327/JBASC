@@ -16,8 +16,6 @@ jbasc decrypt "C:\path\to\file.jbas" "same-long-key" "same-good-salt"
 ```
 for decryption
 
-
-For more info, check LICENSE.
 # JBASC Specifications
 
 - 512 bit blocks
